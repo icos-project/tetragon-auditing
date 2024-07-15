@@ -112,3 +112,8 @@ tetragon_policy_events_total{binary="/usr/bin/touch",hook="kprobe:security_file_
 tetragon_policy_events_total{binary="/usr/bin/curl",hook="kprobe:tcp_connect",namespace="test",pod="tiefighter",policy="external-http-call",workload="tiefighter"} 1
 tetragon_policy_events_total{binary="/usr/bin/cat",hook="kprobe:security_file_permission",namespace="test",pod="tiefighter",policy="application-file-system-access",workload="tiefighter"} 1
 ```
+# Legal
+The Tetragon Auditing is released under the Apache license.
+Copyright © 2022-2024 NCSRD. All rights reserved.
+
+🇪🇺 This work has received funding from the European Union's HORIZON research and innovation programme under grant agreement No. 101070177.
