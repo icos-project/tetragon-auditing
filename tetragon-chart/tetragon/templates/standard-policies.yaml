@@ -1,0 +1,6 @@
+{{- if .Values.standardPolicies -}}
+{{- range $path, $_ := .Files.Glob "standard-policies-yaml/*.yaml" }}
+---
+{{ $.Files.Get $path }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,63 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "application-file-system-access"
+spec:
+  podSelector:
+    matchLabels:
+      org: "empire"
+  kprobes:
+  - call: "security_file_permission"
+    message: "Access to file System"
+    syscall: false
+    args:
+    - index: 0
+      type: "file" 
+    - index: 1
+      type: "int" 
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: "Prefix"
+        values:
+        - "/etc"             
+        - "/boot"
+        - "/lib"
+        - "/lib64"
+        - "/bin"
+        - "/usr/lib"
+        - "/usr/local/lib"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/var/log"          
+        - "/dev/log"
+        - "/root/.ssh"       
+      - index: 1
+        operator: "Equal"
+        values:
+        - "2" 
+    - matchArgs:
+      - index: 0
+        operator: "Prefix"
+        values:
+        - "/etc"             
+        - "/boot"
+        - "/lib"
+        - "/lib64"
+        - "/bin"
+        - "/usr/lib"
+        - "/usr/local/lib"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/usr/sbin"
+        - "/var/log"          
+        - "/dev/log"
+        - "/root/.ssh"       
+      - index: 1
+        operator: "Equal"
+        values:
+        - "4"
+

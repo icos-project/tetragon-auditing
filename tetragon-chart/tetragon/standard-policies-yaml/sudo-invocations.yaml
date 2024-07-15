@@ -1,0 +1,14 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: sudo-invocations
+spec:
+  kprobes:
+    - call: "sys_execve"
+      message: "sudo invoked"
+      return: false
+      selectors:
+      - matchBinaries:
+        - operator: "In"
+          values: 
+          - "/usr/bin/sudo"

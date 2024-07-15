@@ -1,0 +1,23 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "external-http-call"
+spec:
+  podSelector:
+    matchLabels:
+      org: "empire"
+  kprobes:
+  - call: "tcp_connect"
+    syscall: false
+    args:
+    - index: 0
+      type: "sock"
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: "NotDAddr"
+        values:
+        - 127.0.0.1
+        - 10.42.0.0/24
+        - 10.43.0.0/16
+

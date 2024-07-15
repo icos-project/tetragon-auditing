@@ -1,0 +1,6 @@
+{{- if .Values.otelCollector.customOtelExporter -}}
+{{- range $path, $_ := .Files.Glob "customOtelExporter-yaml/*.yaml" }}
+---
+{{ $.Files.Get $path | nindent 0 }}
+{{- end }}
+{{- end }}
