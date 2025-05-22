@@ -1,0 +1,36 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "creds-capability-checks"
+spec:
+  kprobes:
+  - call: "cap_capable"
+    syscall: false
+    return: true
+    args:
+    - index: 1
+      type: "user_namespace"
+    - index: 2
+      type: "capability"
+    returnArg:
+      index: 0
+      type: "int"
+    selectors:
+    - matchPIDs:
+      - operator: NotIn
+        followForks: true
+        isNamespacePID: true
+        values:
+        - 1
+      matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "1"
+    - matchNamespaces:
+      - namespace: Pid
+        operator: NotIn
+        values:
+        - "host_ns"
+      matchActions:
+        - action: Post

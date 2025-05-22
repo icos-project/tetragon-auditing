@@ -1,0 +1,196 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "privilege-escalation"
+  annotations:
+    description: "Detects privileges raising operations"
+spec:
+  kprobes:
+  - call: "__sys_setuid"
+    syscall: false
+    return: true
+    args:
+    - index: 0
+      type: "int"
+    returnArg:
+      index: 0
+      type: "int"
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+  - call: "__sys_setgid"
+    syscall: false
+    return: true
+    args:
+    - index: 0
+      type: "int"
+    returnArg:
+      index: 0
+      type: "int"
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+  - call: "__sys_setreuid"
+    syscall: false
+    return: true
+    args:
+    - index: 0
+      type: "int"
+    - index: 1
+      type: "int"
+    returnArg:
+      index: 0
+      type: "int"
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+    - matchArgs:
+      - index: 1
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+  - call: "__sys_setregid"
+    syscall: false
+    return: true
+    args:
+    - index: 0
+      type: "int"
+    - index: 1
+      type: "int"
+    returnArg:
+      index: 0
+      type: "int"
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+    - matchArgs:
+      - index: 1
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+  - call: "__sys_setresuid"
+    syscall: false
+    return: true
+    args:
+    - index: 0
+      type: "int"
+    - index: 1
+      type: "int"
+    - index: 2
+      type: "int"
+    returnArg:
+      index: 0
+      type: "int"
+    selectors:
+    - matchArgs:
+      - index: 1 # We care about the effective user id to reduce noise
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+    - matchArgs:
+      - index: 2
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+  - call: "__sys_setresgid"
+    syscall: false
+    return: true
+    args:
+    - index: 0
+      type: "int"
+    - index: 1
+      type: "int"
+    - index: 2
+      type: "int"
+    returnArg:
+      index: 0
+      type: "int"
+    selectors:
+    - matchArgs:
+      - index: 1 # We care about the effective group id to reduce noise
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+    - matchArgs:
+      - index: 2
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+  - call: "__sys_setfsuid"
+    syscall: false
+    return: true
+    args:
+    - index: 0
+      type: "int"
+    returnArg:
+      index: 0
+      type: "int"
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"  # Rate limit messages to 1min
+  - call: "__sys_setfsgid"
+    syscall: false
+    return: true
+    args:
+    - index: 0
+      type: "int"
+    returnArg:
+      index: 0
+      type: "int"
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "0"
+      matchActions:
+      - action: Post
+        rateLimit: "1m"

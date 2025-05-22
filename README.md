@@ -1,21 +1,21 @@
 # Tetragon Auditing
-Tetragon is an advanced observability tool designed for monitoring, troubleshooting, and securing cloud-native applications and infrastructure. It leverages eBPF (extended Berkeley Packet Filter) technology to provide deep insights into system behavior, enabling real-time detection and resolution of issues without impacting performance.
-
+Tetragon is an observability tool that monitors cloud applications using eBPF technology for real-time system insights without performance impact.
+This project combines Tetragon with Trivy, which scans for configuration issues. Tetragon policies then monitor for these specific problems. A Prometheus exporter collects and exports combined auditing metrics.
 ## Installation
 ```sh
 cd tetragon-auditing
-helm install  icos-tetragon tetragon-chart/tetragon ## default namespace 
+helm install  icos-tetragon tetragon-chart/icos-auditing ## default namespace 
 ```
 
 ## Pre-defined policies
 Upon installation, Tetragon in the scope of ICOS project has some pre-defined policies located at 
 tetragon-auditing/tetragon-chart/tetragon/standard-policies-yaml:
-- sudo-invocations
-- kernel-module loading
 - priviledges raise ( from upriviledged processes)
-- user namespace creation ( from upriviledged processes)
+- egress connections (connections outside pod and service CIDR)
+- file system operations
 
-## Application defined policies
+
+## Namespaced Application defined policies
 Tetragon is able to monitor an application real-time by creating specific policies.
 Currently the available policies are the following:
 - external http calls from within the application
@@ -111,9 +111,11 @@ An example output from prometheus enpoind would be:
 tetragon_policy_events_total{binary="/usr/bin/touch",hook="kprobe:security_file_permission",namespace="test",pod="tiefighter",policy="application-file-system-access",workload="tiefighter"} 1
 tetragon_policy_events_total{binary="/usr/bin/curl",hook="kprobe:tcp_connect",namespace="test",pod="tiefighter",policy="external-http-call",workload="tiefighter"} 1
 tetragon_policy_events_total{binary="/usr/bin/cat",hook="kprobe:security_file_permission",namespace="test",pod="tiefighter",policy="application-file-system-access",workload="tiefighter"} 1
+
 ```
+
 # Legal
 The Tetragon Auditing is released under the Apache license.
-Copyright © 2022-2024  ICOS Consortium. All rights reserved.
+Copyright © 2022-2024 NCSRD. All rights reserved.
 
 🇪🇺 This work has received funding from the European Union's HORIZON research and innovation programme under grant agreement No. 101070177.

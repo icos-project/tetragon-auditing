@@ -1,0 +1,25 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "external-http-call"
+spec:
+  kprobes:
+  - call: "tcp_connect"
+    syscall: false
+    args:
+    - index: 0
+      type: "sock"
+    selectors:
+    - matchNamespaces:
+      - namespace: Pid
+        operator: "NotIn"
+        values:
+        - "host_ns"
+      matchActions:
+        - action: Post
+          rateLimit: "5"
+    - matchArgs:
+      - index: 0
+        operator: "NotDAddr"
+        values:
+        - 127.0.0.1

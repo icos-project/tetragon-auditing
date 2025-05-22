@@ -1,0 +1,522 @@
+apiVersion: v1
+data:
+
+  requirements.txt: |+
+    prometheus-client
+    requests
+    pyyaml
+  audit-prometheus.py: |+
+    import base64
+    import tempfile
+    import requests
+    import sys
+    import json
+    import urllib3
+    import re
+    import yaml
+    import os
+    from prometheus_client import start_http_server, Gauge, Counter
+    from prometheus_client.core import REGISTRY
+    import prometheus_client as prom
+    import time
+
+
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    API_SERVER="https://kubernetes.default.svc"
+    SERVICEACCOUNT="/var/run/secrets/kubernetes.io/serviceaccount"
+    TOKEN_PATH="{}/token".format(SERVICEACCOUNT)
+    CACERT_PATH="{}/ca.crt".format(SERVICEACCOUNT)
+
+    TOKEN_FILE=open(TOKEN_PATH, "r")
+    TOKEN=TOKEN_FILE.read()
+
+    headers = {
+        'Authorization': 'Bearer {}'.format(TOKEN)
+    }
+
+    # policies_dir = '/etc/tetragon-policies'
+    # for filename in os.listdir(policies_dir):
+
+    #     policy_path = os.path.join(policies_dir, filename)
+    #     if os.path.isfile(policy_path):
+    #         with open(policy_path, 'r') as file:
+    #             policy = yaml.safe_load(file)
+    #             api_endpoint = f"{API_SERVER}/apis/cilium.io/v1alpha1/tracingpolicies"
+
+    #             response = requests.post(
+    #                 api_endpoint,
+    #                 json=policy,
+    #                 headers=headers,
+    #                 verify=False
+    #             )
+
+
+    seen_entries = {}
+    CACHE_EXPIRY_SECONDS = 60
+
+    ignore_ns = [
+        "kube-system",
+        "kube-public",
+        "kube-node-lease",
+        "icos-system",
+        "clusterlink-operator",
+        "clusterlink-system",
+        "open-cluster-management",
+        "open-cluster-management-agent",
+        "open-cluster-management-agent-addon",
+        "default",
+        "gitops"
+    ]
+
+
+    check_rules = ['KSV001','KSV003',
+        'KSV004','KSV005','KSV006','KSV007','KSV008','KSV009','KSV010','KSV011','KSV012',
+        'KSV014','KSV015','KSV016','KSV017','KSV018','KSV020','KSV021','KSV022','KSV023','KSV024',
+        'KSV025','KSV026','KSV027','KSV028','KSV030','KSV105','KSV106','KSV117',
+    ]
+
+
+    severity_map = {'KSV001':1,'KSV003':0,
+        'KSV004':0,'KSV005':2,'KSV006':2,'KSV007':0,'KSV008':2,'KSV009':2,'KSV010':2,'KSV011':0,'KSV012':1,
+        'KSV014':2,'KSV017':2,'KSV018':0,'KSV020':0,'KSV021':0,'KSV022':1,'KSV023':1,'KSV024':1,
+        'KSV028':0,'KSV105':0,'KSV106':0,'KSV117':1
+    }
+
+
+    audit_policy_mapper = {
+        'privilege-escalation':['KSV012', 'KSV020', 'KSV021','KSV023'],
+        'file-system-access':['KSV006','KSV007','KSV014','KSV017'],
+        'capabilities-usage':['KSV007','KSV014'],
+        'external-http-call':['KSV117','KSV014','KSV017','KSV009']
+    }
+
+
+    monitor_mapper = {}
+    pattern = r"[Cc]ontainer '([^']+)'"
+
+
+    def delete_tracing_policy(namespace, name):
+        api_url = f"{API_SERVER}/apis/cilium.io/v1alpha1/namespaces/{namespace}/tracingpoliciesnamespaced/{name}"
+        response = query_api(api_url, method="DELETE")
+        
+        if response.ok:
+            print(f"Successfully deleted TracingPolicyNamespaced '{name}' in namespace '{namespace}'")
+            return True
+        else:
+            print(f"Error deleting resource: {response.status_code} - {response.text}")
+            return False
+
+    def get_tracing_policy(namespace):
+        api_url = f"{API_SERVER}/apis/cilium.io/v1alpha1/namespaces/{namespace}/tracingpoliciesnamespaced"
+        response = query_api(api_url)
+        
+        return response.json()
+
+
+
+
+    def query_api(api_url, method="GET", data=None):
+        if method == "GET":
+            r = requests.get(
+                api_url,
+                verify=CACERT_PATH,
+                headers=headers
+            )
+        elif method == "POST":
+            r = requests.post(
+                api_url,
+                json=data,
+                verify=CACERT_PATH,
+                headers=headers
+            )
+        elif method == "DELETE":
+            r = requests.delete(
+                api_url,
+                verify=CACERT_PATH,
+                headers=headers
+            )
+        return r
+
+
+
+    def exlcude_cidr():
+        api_url = f"{API_SERVER}/api/v1/namespaces/default/services"
+        Cidrs=[]
+
+        service_data = {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "name": "tst"
+            },
+            "spec": {
+                "clusterIP": "1.1.1.1",
+                "ports": [
+                    {"port": 443}
+                ]
+            }
+        }
+        
+        response = query_api(api_url, method="POST", data=service_data)
+        
+        if not response.ok:
+            error_message = response.json().get("message", "")
+            match = re.search(r'valid IPs is (.*)', error_message)
+            if match:
+                svc_range = match.group(1)
+                Cidrs.append(svc_range)
+
+        api_url = f"{API_SERVER}/api/v1/nodes"
+
+        try:
+            response = query_api(api_url)
+            if response.ok:
+                nodes = response.json().get("items", [])
+                for node in nodes:
+
+                    pod_cidr = node.get("spec", {}).get("podCIDR")
+                    if pod_cidr:
+                        Cidrs.append(pod_cidr)
+        except Exception as e:
+            print(f"Error getting Pod CIDR from nodes: {e}")
+
+
+        return Cidrs
+
+
+
+
+    namespaces_url = f"{API_SERVER}/api/v1/namespaces"
+    tetragon_url = f"{API_SERVER}/api/v1/namespaces/icos-system/pods?labelSelector=app.kubernetes.io/name=tetragon"
+    tracing_policies_url = f"{API_SERVER}/apis/cilium.io/v1alpha1/tracingpoliciesnamespaced"
+
+
+
+    policies_dir = '/etc/tetragon-policies'
+
+
+    audit_gauge = Gauge(
+        'icos_security_auditing',
+        'Icos Security auditing',
+        ['namespace','app_name', 'container_name', 'severity', 'title','remediation','severity','severity_value']
+    )
+
+    missconfigs = Gauge(
+        'icos_security_total_vulns',
+        'icos_security_total_vulns',
+        ['namespace','app_name', 'container_name', 'severity','severity_value']
+    )
+
+
+    privilege_gauge = Gauge(
+        'icos_security_priv',
+        'Icos Security priv',
+        ['namespace','app_name', 'container_name','binary_name','arguments']
+    )
+
+    connections_gauge = Gauge(
+        'icos_security_connections',
+        'Icos Security connections',
+        ['namespace','app_name', 'container_name','src_ip','src_port','dst_ip','dst_port']
+    )
+
+    file_gauge = Gauge(
+        'icos_security_fs',
+        'Icos Security fs',
+        ['namespace','app_name', 'container_name','binary_name']
+    )
+
+
+    security_event = Counter(
+        'icos_security_event',
+        'Icos Security trigger',
+        ['namespace','app_name', 'container_name','event_name','severity','severity_value']
+    )
+
+    sv1="high"
+    sv2=3
+    severity=3
+
+    start_http_server(8001)
+
+
+    while True:
+
+        overall_severity = {}
+
+        # try:
+
+        r = query_api(namespaces_url)
+
+        namespaces = [
+            ns['metadata']['name'] 
+            for ns in r.json()['items'] 
+            if ns.get('metadata', {}).get('annotations', {}).get('app.icos.eu/managed-by') == "jobmanager"
+        ]
+
+        x_cidr = exlcude_cidr()
+
+        for namespace in namespaces:
+
+            
+            resp = get_tracing_policy(namespace)
+            if len(resp['items'])==0:
+                for filename in os.listdir(policies_dir):
+
+                    policy_path = os.path.join(policies_dir, filename)
+                    if os.path.isfile(policy_path):
+                        with open(policy_path, 'r') as file:
+                            policy = yaml.safe_load(file)
+                            if policy == None:
+                                continue
+                            policy["metadata"]["namespace"] = namespace
+                            policy_name = policy["metadata"]["name"]
+                            print(policy_name,namespace,x_cidr)
+                            if(policy_name == "outside-connection"):
+                                for cidr in x_cidr:
+                                    policy["spec"]["kprobes"][0]["selectors"][0]["matchArgs"][0]["values"].append(cidr)
+
+                            create_url = f"{API_SERVER}/apis/cilium.io/v1alpha1/namespaces/{namespace}/tracingpoliciesnamespaced"
+                            r = query_api(create_url, method="POST", data=policy)
+
+
+
+            trivy_url = f"{API_SERVER}/apis/aquasecurity.github.io/v1alpha1/namespaces/{namespace}/configauditreports"
+            r = query_api(trivy_url)
+            records = r.json()
+
+
+            severity_dict ={
+                1:0,
+                2:0,
+                3:0
+            }
+
+
+            for record in records['items']:
+                if(record['metadata']['labels']['trivy-operator.resource.kind'] == 'Service'):
+                    continue
+
+                app_name = record['metadata']['labels']['trivy-operator.resource.name']
+                monitor_mapper[app_name] = {}
+                monitor_mapper[app_name]['audit_rules'] = []
+                audit_items = record['report']['checks']
+                for audit_item in audit_items:
+                    check_id = audit_item['checkID']
+                    if (check_id  not in check_rules):
+                        continue
+
+                    audit_title = audit_item['title']
+                    audit_remediation = audit_item['remediation']
+                    audit_severity = audit_item['severity']
+
+                    monitor_mapper[app_name][check_id] = audit_severity
+                    monitor_mapper[app_name]['audit_rules'].append(check_id) 
+
+
+                    match = re.search(pattern, audit_item['messages'][0])
+                    if match:
+                        container_name = match.group(1)
+                        severity_value = 0
+
+                        if audit_severity == "LOW":
+                            severity_value = 1
+                        elif audit_severity == "MEDIUM":
+                            severity_value = 2
+                        elif audit_severity == "HIGH":
+                            severity_value = 3
+
+
+                        audit_gauge.labels(
+                            namespace,
+                            app_name,
+                            container_name,
+                            severity_value,
+                            audit_title,
+                            audit_remediation,
+                            audit_severity.lower(),
+                            severity_value
+                        ).set(severity_value)
+
+                        severity_dict[severity_value]+=1
+
+                    try:
+                        missconfigs.labels(
+                            namespace,
+                            app_name,
+                            container_name,
+                            "low",
+                            1
+                        ).set(severity_dict[1])
+
+                        missconfigs.labels(
+                            namespace,
+                            app_name,
+                            container_name,
+                            "medium",
+                            2
+                        ).set(severity_dict[2])
+
+
+                        missconfigs.labels(
+                            namespace,
+                            app_name,
+                            container_name,
+                            "high",
+                            3
+                        ).set(severity_dict[3])
+
+
+                        if(severity_dict[3]):
+                            overall_severity[container_name]=3
+                        elif (severity_dict[2]):
+                            overall_severity[container_name]=2
+                        else:
+                            overall_severity[container_name]=1
+
+                    except:
+                        pass
+
+
+
+            r = query_api(tetragon_url)
+            
+            pods = r.json()['items']
+
+            for p in pods:
+                tetra_name = p['metadata']['name']
+
+                current_time = time.time()
+                
+                expired_keys = [k for k, v in seen_entries.items() if current_time - v > CACHE_EXPIRY_SECONDS]
+                for key in expired_keys:
+                    del seen_entries[key]
+
+
+                logs = requests.get(
+                    f"{API_SERVER}/api/v1/namespaces/icos-system/pods/{tetra_name}/log?sinceSeconds=5&container=export-stdout",
+                    headers=headers,
+                    verify=CACERT_PATH
+                )
+                for log in logs.text.splitlines():
+
+                    l = json.loads(log)
+                    if('policy_name' in log):
+                        exec_id = l.get('process_kprobe',{}).get('process',{}).get('exec_id',{})
+                        workload = l.get('process_kprobe',{}).get('process',{}).get('pod',{}).get('workload',{})
+                        template_hash = l.get('process_kprobe',{}).get('process',{}).get('pod',{}).get('pod_labels',{}).get('pod-template-hash',{})
+                        workload_id = workload+"-"+template_hash
+                        workload_info = l.get('process_kprobe',{}).get('process',{}).get('pod',{})
+                        namespace = workload_info.get('namespace')
+                        app_name = workload_info.get('name')
+                        container_name = workload_info.get('container',{}).get('name',{})
+                        policy_name = l.get('process_kprobe',{}).get('policy_name',{})
+
+
+                        entry_key = (exec_id, policy_name)
+                        
+                        if entry_key in seen_entries:
+                            continue
+                            
+                        seen_entries[entry_key] = current_time
+
+
+
+                        if('outside-connection' in log):
+                            binary = l.get('process_kprobe',{}).get('process',{}).get('binary',{})
+                            saddr = l.get('process_kprobe',{}).get('args',{})[0]['sock_arg']['saddr']
+                            sport = l.get('process_kprobe',{}).get('args',{})[0]['sock_arg']['sport']
+                            daddr = l.get('process_kprobe',{}).get('args',{})[0]['sock_arg']['daddr']
+                            dport = l.get('process_kprobe',{}).get('args',{})[0]['sock_arg']['dport']
+
+
+                            connections_gauge.labels(
+                                namespace,
+                                app_name,
+                                container_name,
+                                saddr,
+                                sport,
+                                daddr,
+                                dport
+                            ).set(severity)
+
+                            security_event.labels(
+                                namespace,
+                                app_name,
+                                container_name,
+                                'outside-connection',
+                                sv1,
+                                sv2
+                            ).inc(1)
+
+
+                        if('privilege-escalation' in log):
+                            binary = l.get('process_kprobe',{}).get('process',{}).get('binary',{})
+                            arguments = l.get('process_kprobe',{}).get('process',{}).get('arguments',{})
+                            severity = -1
+
+                            print(log)
+
+                            for rule in audit_policy_mapper['privilege-escalation']:
+
+
+                                if rule in monitor_mapper[workload_id]['audit_rules']:
+                                    if(severity<severity_map[rule]):
+                                        severity = severity_map[rule]
+
+
+                                    privilege_gauge.labels(
+                                        namespace,
+                                        app_name,
+                                        container_name,
+                                        binary,
+                                        arguments
+                                    ).set(severity)
+
+                                    security_event.labels(
+                                        namespace,
+                                        app_name,
+                                        container_name,
+                                        'privilege-escalation',
+                                        sv1,
+                                        sv2
+                                    ).inc(1)
+
+
+                        if('file-system-access' in log):
+                            operation = 'read'
+                            binary = l.get('process_kprobe',{}).get('process',{}).get('binary',{})
+                            arguments = l.get('process_kprobe',{}).get('process',{}).get('arguments',{})
+                            severity = -1
+                            for rule in audit_policy_mapper['file-system-access']:
+                                if rule in monitor_mapper[workload_id]['audit_rules']:
+                                    if(severity<severity_map[rule]):
+                                        severity = severity_map[rule]
+
+                                file_gauge.labels(
+                                    namespace,
+                                    app_name,
+                                    container_name,                            
+                                    binary
+                                ).set(severity)
+
+                                print(log)
+
+                                security_event.labels(
+                                    namespace,
+                                    app_name,
+                                    container_name,
+                                    'file-system-access',
+                                    sv1,
+                                    sv2
+                                ).inc(1)
+        # except:
+            # pass
+
+            time.sleep(1)
+
+kind: ConfigMap
+metadata:
+  name: prom-code
+  namespace: {{ .Release.Namespace }}

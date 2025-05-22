@@ -1,0 +1,4 @@
+apiVersion: v2
+name: audit-prometheus
+description: Audit Prometheus
+version: 0.1.0

@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: audit-prometheus-exporter
+  name: audit-prom-exporter
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-prometheus-exporter
+  template:
+    metadata:
+      labels:
+        app: audit-prometheus-exporter
+    spec:
+      serviceAccount: icos-audit-ac
+      containers:
+      - args:
+        - "pip install -r /etc/prom-code/requirements.txt && python /etc/prom-code/audit-prometheus.py"
+        command:
+        - /bin/sh
+        - -c
+        image: python:3.9-slim
+        name: audit-container
+        ports:
+        - containerPort: 8081
+          name: metrics
+        volumeMounts:
+        - mountPath: /etc/prom-code
+          name: prom-code
+        - mountPath: /etc/tetragon-policies
+          name: tetragon-policies
+      volumes:
+      - configMap:
+          name: prom-code
+        name: prom-code
+      - configMap:
+          name: tetragon-policies
+        name: tetragon-policies
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    telemetry.icos.eu/interval: 60s
+    telemetry.icos.eu/scrape: "true"
+  name: audit-prometheus-exporter-svc
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+  - port: 8001
+    protocol: TCP
+    targetPort: 8001
+  selector:
+    app: audit-prometheus-exporter
+  type: ClusterIP

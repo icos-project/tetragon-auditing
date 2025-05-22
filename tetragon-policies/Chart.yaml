@@ -1,0 +1,4 @@
+apiVersion: v2
+name: tetragon-policies
+description: Tetragon Security Policies
+version: 0.1.0

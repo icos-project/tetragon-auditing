@@ -1,0 +1,68 @@
+# apiVersion: cilium.io/v1alpha1
+# kind: TracingPolicy
+# metadata:
+#   name: "file-system-access"
+# spec:
+#   kprobes:
+#   - call: "sys_write"
+#     syscall: true
+#     args:
+#     - index: 0
+#       type: "int"
+#     - index: 1
+#       type: "char_buf"
+#       sizeArgIndex: 3
+#     - index: 2
+#       type: "size_t"
+#     selectors:
+#     - matchPIDs:
+#       - operator: NotIn
+#         followForks: true
+#         isNamespacePID: true
+#         values:
+#         - 1
+#       matchArgs:
+#       - index: 0
+#         operator: "Equal"
+#         values:
+#         - "1"
+#       matchNamespaces:
+#       - namespace: Pid
+#         operator: NotIn
+#         values:
+#         - "host_ns"
+
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: "file-system-access"
+  namespace: "mediaapplication-1744645669776" 
+spec:
+  kprobes:
+  - call: "sys_write"
+    syscall: true
+    args:
+    - index: 0
+      type: "int"
+    - index: 1
+      type: "char_buf"
+      sizeArgIndex: 3
+    - index: 2
+      type: "size_t"
+    selectors:
+    - matchPIDs:
+      - operator: NotIn
+        followForks: true
+        isNamespacePID: true
+        values:
+        - 1
+      matchArgs:
+      - index: 0
+        operator: "Equal"
+        values:
+        - "1"
+      matchNamespaces:
+      - namespace: Pid
+        operator: NotIn
+        values:
+        - "host_ns"

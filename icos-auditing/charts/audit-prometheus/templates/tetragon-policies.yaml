@@ -1,0 +1,112 @@
+apiVersion: v1
+data:
+  net_policy.yaml: |-
+    apiVersion: cilium.io/v1alpha1
+    kind: TracingPolicyNamespaced
+    metadata:
+      name: "outside-connection"
+      namespace: "temp" 
+    spec:
+      kprobes:
+      - call: "tcp_connect"
+        syscall: false
+        args:
+        - index: 0
+          type: "sock"
+        selectors:
+        - matchArgs:
+          - index: 0
+            operator: "NotDAddr"
+            values:
+            - 127.0.0.1
+
+  priv_policy.yaml: |-
+    apiVersion: cilium.io/v1alpha1
+    kind: TracingPolicyNamespaced
+    metadata:
+      name: "privilege-escalation"
+      namespace: "temp"
+      annotations:
+        description: "Detects privileges raising operations"
+    spec:
+      kprobes:
+
+      #nsenter
+      # Monitor potential container escape attempts (relates to KSV003, KSV004)
+      - call: "security_capable"
+        return: false
+        syscall: false
+        args:
+        - index: 0
+          type: "int"
+        - index: 1
+          type: "int"
+      # Monitor namespace changes (potential escape vector)
+      - call: "switch_task_namespaces"
+        return: false
+        syscall: false
+
+  priv_policy2.yaml: |-
+    apiVersion: cilium.io/v1alpha1
+    kind: TracingPolicyNamespaced
+    metadata:
+      name: "privilege-escalation2"
+      namespace: "temp"
+    spec:
+      kprobes:
+      # touch testfile && chown nobody testfile
+      # date -s "$(date)"
+      # /usr/bin/su nobody -c "exit"
+      # Monitor attempts to use capabilities (relates to KSV003, KSV004)
+      - call: "cap_capable"
+        return: false
+        syscall: false
+        args:
+        - index: 0
+          type: int
+        - index: 1
+          type: int
+        - index: 2
+          type: int
+
+  fs_policy.yaml: |-
+    apiVersion: cilium.io/v1alpha1
+    kind: TracingPolicyNamespaced
+    metadata:
+      name: "file-system-access"
+      namespace: "temp" 
+    spec:
+      kprobes:
+      - call: "sys_write"
+        syscall: true
+        args:
+        - index: 0
+          type: "int"
+        - index: 1
+          type: "char_buf"
+          sizeArgIndex: 3
+        - index: 2
+          type: "size_t"
+        selectors:
+        - matchPIDs:
+          - operator: NotIn
+            followForks: true
+            isNamespacePID: true
+            values:
+            - 1
+          matchArgs:
+          - index: 0
+            operator: "Equal"
+            values:
+            - "1"
+          matchNamespaces:
+          - namespace: Pid
+            operator: NotIn
+            values:
+            - "host_ns"
+
+
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: tetragon-policies
